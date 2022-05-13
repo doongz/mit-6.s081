@@ -8,6 +8,13 @@
 #include "proc.h"
 
 uint64
+sys_trace(void)
+{
+  argint(0, &(myproc()->trace_mask));
+  return 0;
+}
+
+uint64
 sys_exit(void)
 {
   int n;
