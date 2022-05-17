@@ -20,6 +20,7 @@ static void wakeup1(struct proc *chan);
 static void freeproc(struct proc *p);
 
 extern char trampoline[]; // trampoline.S
+extern pagetable_t kernel_pagetable;
 
 // initialize the proc table at boot time.
 void
@@ -121,6 +122,9 @@ found:
     return 0;
   }
 
+  // 为进程创建用户内核页表 vim.c
+  p->kpagetable = setupkvm();
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -141,6 +145,9 @@ freeproc(struct proc *p)
   p->trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+  if (p->kpagetable) {
+    kvmfree(p->kpagetable, p->sz);
+  }
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -473,7 +480,8 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
-        swtch(&c->context, &p->context);
+        swtchkpt(p->kpagetable); // 加载用户的内核table到satp寄存器
+        swtch(&c->context, &p->context); // 执行进程的任务
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
@@ -485,6 +493,7 @@ scheduler(void)
     }
 #if !defined (LAB_FS)
     if(found == 0) {
+      swtchkpt(kernel_pagetable); // 没有进程运行时，应当使用 kernel_pagetable
       intr_on();
       asm volatile("wfi");
     }
@@ -696,4 +705,10 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+
+void swtchkpt(pagetable_t kpagetable) {
+  w_satp(MAKE_SATP(kpagetable));
+  sfence_vma();
 }

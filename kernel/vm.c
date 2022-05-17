@@ -469,3 +469,51 @@ void vmprint(pagetable_t pagetable_l2) {
         }
     }
 }
+
+
+void
+setupkvmmap(pagetable_t kpagetable, uint64 va, uint64 pa, uint64 sz, int perm)
+{
+  if(mappages(kpagetable, va, sz, pa, perm) != 0)
+    panic("setupkvmmap");
+}
+
+
+// 复制当前内核页表
+pagetable_t setupkvm() {
+  // 创建一个空的用户 page table
+  pagetable_t kpagetable = uvmcreate();
+  if (kpagetable == 0)
+    panic("setupkvm");
+
+  // xv6的用户进程地址空间不会超过页表第一项的范围，所以只需要从第二项开始拷贝内核页表项
+  int i;
+  for(i = 1; i < 512; i++){
+    kpagetable[i] = kernel_pagetable[i];
+  }
+  // IO地址空间位于内核页表的第一项，所以需要重新映射
+  setupkvmmap(kpagetable, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+  setupkvmmap(kpagetable, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+  setupkvmmap(kpagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  setupkvmmap(kpagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+
+  return kpagetable;
+}
+
+
+void
+kvmfree(pagetable_t pagetable, uint64 sz)
+{
+  // 清空内核页表的用户进程空间页表项，但不释放对应物理页，由用户页表释放时处理
+  pagetable_t level1 = (pagetable_t)PTE2PA(pagetable[0]);
+  for (int i = 0; i < 512; i++){
+    pte_t *pte = &level1[i];
+    if(*pte & PTE_V){
+      kfree((void*)PTE2PA(*pte));
+      *pte = 0;
+    }
+  }
+  kfree((void*)level1);
+  // 用户内核页表剩余页表项是直接复制内核页表的，所以无需释放对应物理页，直接释放用户内核页表对应的物理页即可
+  kfree((void*)pagetable);
+}
