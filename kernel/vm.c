@@ -379,6 +379,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
+  /*
   uint64 n, va0, pa0;
 
   while(len > 0){
@@ -396,6 +397,8 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
     srcva = va0 + PGSIZE;
   }
   return 0;
+  */
+ return copyin_new(pagetable, dst, srcva, len);
 }
 
 // Copy a null-terminated string from user to kernel.
@@ -405,6 +408,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 int
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
+  /*
   uint64 n, va0, pa0;
   int got_null = 0;
 
@@ -439,6 +443,8 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+  */
+ return copyinstr_new(pagetable, dst, srcva, max);
 }
 
 // kernel/vm.c
@@ -479,7 +485,7 @@ setupkvmmap(pagetable_t kpagetable, uint64 va, uint64 pa, uint64 sz, int perm)
 }
 
 
-// 复制当前内核页表
+// 1、复制当前内核页表至用户的内核页表，此时用户的内核页表中还没有用户的进程信息
 pagetable_t setupkvm() {
   // 创建一个空的用户 page table
   pagetable_t kpagetable = uvmcreate();
@@ -498,6 +504,36 @@ pagetable_t setupkvm() {
   setupkvmmap(kpagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
 
   return kpagetable;
+}
+
+// 2、将用户进程空间映射到用户内核页表
+void
+setupuvm2kvm(pagetable_t pagetable, pagetable_t kpagetable, uint64 newsz, uint64 oldsz)
+{
+  pte_t *pte, *kpte;
+  uint64 va;
+
+  if (newsz >= PLIC)
+    panic("setupuvm2kvm: user process space is overwritten to kernel process space");
+
+  // 虚地址从 0 开始，
+  for(va = oldsz; va < newsz; va += PGSIZE){
+    // 找到对应页表项，如果不存在则创建
+    if((kpte = walk(kpagetable, va, 1)) == 0)
+      panic("setupuvm2kvm: kpte should exist");
+    // 找到对应页表项
+    if((pte = walk(pagetable, va, 0)) == 0)
+      panic("setupuvm2kvm: pte should exist");
+    // 不需要重新映射，页表项指向相同的物理页，并重新设置内核页表项标志
+    *kpte = *pte;
+    *kpte &= ~(PTE_U | PTE_W | PTE_X);
+  }
+
+  for(va = newsz; va < oldsz; va += PGSIZE){
+    if((kpte = walk(kpagetable, va, 1)) == 0)
+      panic("setupuvm2kvm: kpte should exist");
+    *kpte &= ~PTE_V;
+  }
 }
 
 

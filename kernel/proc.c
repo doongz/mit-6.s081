@@ -145,10 +145,12 @@ freeproc(struct proc *p)
   p->trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+  p->pagetable = 0;
+
   if (p->kpagetable) {
     kvmfree(p->kpagetable, p->sz);
   }
-  p->pagetable = 0;
+  
   p->sz = 0;
   p->pid = 0;
   p->parent = 0;
@@ -237,6 +239,9 @@ userinit(void)
 
   p->state = RUNNABLE;
 
+  // 将用户进程地址空间映射到用户内核页表当中
+  setupuvm2kvm(p->pagetable, p->kpagetable, p->sz, 0);
+
   release(&p->lock);
 }
 
@@ -257,6 +262,10 @@ growproc(int n)
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
   p->sz = sz;
+
+  // 将用户进程地址空间映射到用户内核页表当中
+  setupuvm2kvm(p->pagetable, p->kpagetable, p->sz, 0);
+
   return 0;
 }
 
@@ -301,6 +310,9 @@ fork(void)
   pid = np->pid;
 
   np->state = RUNNABLE;
+
+  // 将用户进程地址空间映射到用户内核页表当中
+  setupuvm2kvm(np->pagetable, np->kpagetable, np->sz, 0);
 
   release(&np->lock);
 
@@ -482,6 +494,7 @@ scheduler(void)
         c->proc = p;
         swtchkpt(p->kpagetable); // 加载用户的内核table到satp寄存器
         swtch(&c->context, &p->context); // 执行进程的任务
+        swtchkpt(kernel_pagetable); // 没有进程运行时，应当使用 kernel_pagetable
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
@@ -493,7 +506,6 @@ scheduler(void)
     }
 #if !defined (LAB_FS)
     if(found == 0) {
-      swtchkpt(kernel_pagetable); // 没有进程运行时，应当使用 kernel_pagetable
       intr_on();
       asm volatile("wfi");
     }
