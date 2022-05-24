@@ -50,7 +50,8 @@ usertrap(void)
   // save user program counter.
   p->trapframe->epc = r_sepc();
   
-  if(r_scause() == 8){
+  uint64 scause = r_scause();
+  if(scause == 8){
     // system call
 
     if(p->killed)
@@ -65,6 +66,22 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if (scause == 13 || scause == 15) {
+    // 处理页面错误
+    uint64 fault_va = r_stval();  // 产生页面错误的虚拟地址
+    char *pa;                     // 分配的物理地址
+    if(PGROUNDUP(p->trapframe->sp) - 1 < fault_va && fault_va < p->sz &&
+      (pa = kalloc()) != 0) {  // 错误使用的虚地址是在栈区
+        memset(pa, 0, PGSIZE); // 每次申请一个page
+        if (mappages(p->pagetable, PGROUNDDOWN(fault_va), PGSIZE, (uint64)pa, 
+          PTE_R | PTE_W | PTE_X | PTE_U) != 0) { // 虚地址和物理地址映射
+            kfree(pa);
+            p->killed = 1;
+          }
+    } else {
+      p->killed = 1;
+    }
+
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
