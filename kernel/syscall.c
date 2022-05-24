@@ -67,7 +67,28 @@ argint(int n, int *ip)
 int
 argaddr(int n, uint64 *ip)
 {
-  *ip = argraw(n);
+  *ip = argraw(n); // 参数的虚地址
+
+  // 处理向系统调用传入lazy allocation地址的情况
+  struct proc* p = myproc();
+  if(walkaddr(p->pagetable, *ip) == 0) { // 查看虚地址的物理地址是否映射了，0没有
+    printf("virtual mem not mapped.");
+    if(PGROUNDUP(p->trapframe->sp) - 1 < *ip && *ip < p->sz) { // 使用的虚地址在栈上
+      char* pa = kalloc(); // 申请个物理地址
+      if(pa == 0) // 如果这个物理地址被用了，就失败返回
+        return -1;
+      memset(pa, 0, PGSIZE); // 物理地址可用，填充上0
+
+      // 参数的虚地址与物理地址做映射
+      if(mappages(p->pagetable, PGROUNDDOWN(*ip), PGSIZE, (uint64)pa, PTE_R | PTE_W | PTE_X | PTE_U) != 0) {
+        kfree(pa);
+        return -1;
+      }
+    } else {
+      return -1;
+    }
+  }
+
   return 0;
 }
 

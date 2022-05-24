@@ -70,12 +70,12 @@ usertrap(void)
     // 处理页面错误
     uint64 fault_va = r_stval();  // 产生页面错误的虚拟地址
     char *pa;                     // 分配的物理地址
-    if(PGROUNDUP(p->trapframe->sp) - 1 < fault_va && fault_va < p->sz &&
-      (pa = kalloc()) != 0) {  // 错误使用的虚地址是在栈区
+    if(PGROUNDUP(p->trapframe->sp) - 1 < fault_va && fault_va < p->sz && // 错误使用的虚地址是在栈区
+      (pa = kalloc()) != 0) {  // 获取一个物理地址
         memset(pa, 0, PGSIZE); // 每次申请一个page
         if (mappages(p->pagetable, PGROUNDDOWN(fault_va), PGSIZE, (uint64)pa, 
           PTE_R | PTE_W | PTE_X | PTE_U) != 0) { // 虚地址和物理地址映射
-            kfree(pa);
+            kfree(pa); // 如果这个物理地址已经被用了，就释放掉
             p->killed = 1;
           }
     } else {
