@@ -50,7 +50,8 @@ usertrap(void)
   // save user program counter.
   p->trapframe->epc = r_sepc();
   
-  if(r_scause() == 8){
+  int scause = r_scause();
+  if(scause == 8){
     // system call
 
     if(p->killed)
@@ -67,6 +68,20 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if(scause == 13 || scause == 15) {
+    // 这个地方会在子进程中触发，p->pagetable 为子进程中映射在老物理地址上的pagetable
+    // 使用老的pagetable 会报page fault
+    // 进行一些判断后进行copy on write申请内存
+    uint64 fault_va = r_stval();  // 获取出错的虚拟地址
+    if (fault_va < p->sz && cowpage(p->pagetable, fault_va) == 1) {
+      // 如果这个错误的虚地址是有效的，且这个虚地址对应的pte是COW页面
+      // 进行copy on write申请内存
+      if (cowalloc(p->pagetable, PGROUNDDOWN(fault_va)) == 0) {
+        p->killed = 1;
+      }
+    } else {
+      p->killed = 1;
+    }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());

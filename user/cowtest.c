@@ -13,20 +13,23 @@ void
 simpletest()
 {
   uint64 phys_size = PHYSTOP - KERNBASE;
-  int sz = (phys_size / 3) * 2;
+  int sz = (phys_size / 3) * 2; // 物理内存的一半多
 
   printf("simple: ");
   
-  char *p = sbrk(sz);
+  char *p = sbrk(sz); // 当前已申请内存的大小，栈顶，堆底
   if(p == (char*)0xffffffffffffffffL){
     printf("sbrk(%d) failed\n", sz);
     exit(-1);
   }
 
+  // 将查询到的 pid 信息放入堆区（大小为，物理内存的一半多）
+  // 这一步操作的目的是，将一半多的物理内存都使用上
   for(char *q = p; q < p + sz; q += 4096){
     *(int*)q = getpid();
   }
 
+  // 父进程fork子进程，全量拷贝的时候，没有足够物理内存来用
   int pid = fork();
   if(pid < 0){
     printf("fork() failed\n");
